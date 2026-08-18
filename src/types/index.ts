@@ -8,6 +8,8 @@ export interface FileAttachment {
   hash: string; // SHA-256
   duration?: string; // for video e.g. "00:47"
   storagePath?: string;
+  fileId?: string;
+  totalChunks?: number;
 }
 
 export interface Message {

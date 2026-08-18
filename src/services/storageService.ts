@@ -1,6 +1,12 @@
+import { db } from '../lib/firebase';
+import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 import { computeFileSHA256, formatBytes } from '../lib/hash';
 import { FileAttachment, UploadProgress } from '../types';
 import { addSystemLog } from './chatService';
+
+const CHUNK_SIZE = 250 * 1024; // 250 KB raw binary chunk size
+const blobUrlCache = new Map<string, string>();
+const pendingDownloads = new Map<string, Promise<string>>();
 
 export async function getVideoDurationString(file: File): Promise<string> {
   return new Promise((resolve) => {
@@ -30,8 +36,18 @@ export async function getVideoDurationString(file: File): Promise<string> {
   });
 }
 
+function fileSliceToBase64(slice: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(slice);
+  });
+}
+
 /**
  * Uploads a file with progress tracking, cancellation support, SHA256 hashing, and duration extraction.
+ * Handles large files (like videos) by chunking to bypass Firestore 1MB document limit.
  */
 export function uploadFileWithProgress(
   file: File,
@@ -52,8 +68,8 @@ export function uploadFileWithProgress(
       onProgress({
         fileName: file.name,
         fileSize: file.size,
-        progressPercent: 10,
-        bytesTransferred: Math.round(file.size * 0.1),
+        progressPercent: 5,
+        bytesTransferred: Math.round(file.size * 0.05),
         status: 'UPLOADING',
       });
 
@@ -68,18 +84,80 @@ export function uploadFileWithProgress(
         return;
       }
 
-      const timeStamp = Date.now();
-      const storagePath = `nexus_uploads/${userUid}/${timeStamp}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+      const isLargeFile = file.size >= 300 * 1024 || file.type.startsWith('video/');
 
-      // Process upload instantly via optimized Data URL storage
-      const attachment = await simulateLocalUpload(
-        file,
-        hash,
-        duration,
-        storagePath,
-        onProgress,
-        () => isCancelled
-      );
+      let attachment: FileAttachment;
+
+      if (isLargeFile) {
+        // Chunked upload to Firestore
+        const fileId = `f_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+        for (let i = 0; i < totalChunks; i++) {
+          if (isCancelled) {
+            reject(new Error('UPLOAD_CANCELLED'));
+            return;
+          }
+
+          const start = i * CHUNK_SIZE;
+          const end = Math.min(file.size, (i + 1) * CHUNK_SIZE);
+          const chunkBlob = file.slice(start, end);
+          const chunkData = await fileSliceToBase64(chunkBlob);
+
+          await addDoc(collection(db, 'file_chunks'), {
+            fileId,
+            index: i,
+            totalChunks,
+            chunkData,
+            createdAt: Date.now(),
+          });
+
+          const percent = Math.round(((i + 1) / totalChunks) * 100);
+          onProgress({
+            fileName: file.name,
+            fileSize: file.size,
+            progressPercent: percent,
+            bytesTransferred: end,
+            status: 'UPLOADING',
+          });
+        }
+
+        // Cache local object URL for instant playback on uploader client
+        const localObjUrl = URL.createObjectURL(file);
+        blobUrlCache.set(fileId, localObjUrl);
+
+        attachment = {
+          url: '',
+          fileId,
+          totalChunks,
+          name: file.name,
+          size: file.size,
+          type: file.type || getFileTypeCategory(file.name),
+          hash,
+          duration,
+          storagePath: `chunked://${fileId}`,
+        };
+      } else {
+        // Small file direct data URL
+        const dataUrl = await fileToDataUrl(file);
+        onProgress({
+          fileName: file.name,
+          fileSize: file.size,
+          progressPercent: 100,
+          bytesTransferred: file.size,
+          status: 'COMPLETE',
+        });
+
+        attachment = {
+          url: dataUrl,
+          name: file.name,
+          size: file.size,
+          type: file.type || getFileTypeCategory(file.name),
+          hash,
+          duration,
+          storagePath: `direct://${file.name}`,
+        };
+      }
 
       await addSystemLog(`MEDIA UPLOAD COMPLETE: ${file.name}`, 'INFO', userUid);
       resolve(attachment);
@@ -100,56 +178,67 @@ export function uploadFileWithProgress(
   return { cancel, promise };
 }
 
-async function simulateLocalUpload(
-  file: File,
-  hash: string,
-  duration: string,
-  storagePath: string,
-  onProgress: (progress: UploadProgress) => void,
-  checkCancelled: () => boolean
-): Promise<FileAttachment> {
-  const total = file.size;
-  const steps = 5;
-  const delay = Math.min(100, Math.max(30, total / 200000));
-
-  for (let i = 1; i <= steps; i++) {
-    if (checkCancelled()) throw new Error('UPLOAD_CANCELLED');
-    await new Promise((res) => setTimeout(res, delay));
-    const percent = Math.round((i / steps) * 100);
-    onProgress({
-      fileName: file.name,
-      fileSize: file.size,
-      progressPercent: percent,
-      bytesTransferred: Math.round((percent / 100) * total),
-      status: 'UPLOADING',
-    });
+export async function getOrLoadChunkedFileUrl(
+  attachment: FileAttachment,
+  onProgress?: (percent: number) => void
+): Promise<string> {
+  if (attachment.url) {
+    return attachment.url;
+  }
+  if (!attachment.fileId) {
+    return '';
   }
 
-  // Convert file to reliable Base64 Data URL (sharable across all browsers and persistent)
-  const fileDataUrl = await fileToDataUrl(file);
+  const fileId = attachment.fileId;
 
-  onProgress({
-    fileName: file.name,
-    fileSize: file.size,
-    progressPercent: 100,
-    bytesTransferred: total,
-    status: 'COMPLETE',
-  });
-
-  const attachment: FileAttachment = {
-    url: fileDataUrl,
-    name: file.name,
-    size: file.size,
-    type: file.type || getFileTypeCategory(file.name),
-    hash,
-    storagePath: `local://${storagePath}`,
-  };
-
-  if (duration) {
-    attachment.duration = duration;
+  if (blobUrlCache.has(fileId)) {
+    return blobUrlCache.get(fileId)!;
   }
 
-  return attachment;
+  if (pendingDownloads.has(fileId)) {
+    return pendingDownloads.get(fileId)!;
+  }
+
+  const downloadPromise = (async () => {
+    try {
+      if (onProgress) onProgress(10);
+      const q = query(collection(db, 'file_chunks'), where('fileId', '==', fileId));
+      const snap = await getDocs(q);
+
+      if (snap.empty) {
+        throw new Error('No media chunks found in database');
+      }
+
+      if (onProgress) onProgress(40);
+
+      const docs = snap.docs.map((d) => d.data() as { index: number; chunkData: string });
+      docs.sort((a, b) => a.index - b.index);
+
+      const blobParts: Blob[] = [];
+      for (let i = 0; i < docs.length; i++) {
+        const item = docs[i];
+        const res = await fetch(item.chunkData);
+        const chunkBlob = await res.blob();
+        blobParts.push(chunkBlob);
+        if (onProgress) {
+          onProgress(40 + Math.round(((i + 1) / docs.length) * 55));
+        }
+      }
+
+      const mimeType = attachment.type || getFileTypeCategory(attachment.name);
+      const fullBlob = new Blob(blobParts, { type: mimeType });
+      const blobUrl = URL.createObjectURL(fullBlob);
+
+      blobUrlCache.set(fileId, blobUrl);
+      if (onProgress) onProgress(100);
+      return blobUrl;
+    } finally {
+      pendingDownloads.delete(fileId);
+    }
+  })();
+
+  pendingDownloads.set(fileId, downloadPromise);
+  return downloadPromise;
 }
 
 export async function fileToDataUrl(file: File): Promise<string> {
@@ -226,6 +315,5 @@ export function getFileTypeCategory(fileName: string): string {
 }
 
 export async function deleteStorageFile(_storagePath?: string) {
-  // No-op for direct storage records
   return;
 }
