@@ -65,7 +65,7 @@ export const LoginConsole: React.FC<LoginConsoleProps> = ({
                 type="text"
                 value={operatorName}
                 onChange={(e) => setOperatorName(e.target.value)}
-                placeholder="e.g. Infas, Operator Alpha..."
+                placeholder="e.g. loomy, Operator Alpha..."
                 required
                 autoFocus
                 className="w-full bg-black border border-[#1e1e1e] focus:border-green-500 text-white pl-8 pr-3 py-2 rounded-xs outline-none font-mono text-xs placeholder-gray-600"
