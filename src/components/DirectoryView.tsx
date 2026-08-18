@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { Message } from '../types';
 import { formatBytes, truncateHash } from '../lib/hash';
-import { Film, FileText, Download, Play, Image as ImageIcon, Search } from 'lucide-react';
+import { Film, FileText, Download, Play, Image as ImageIcon, Search, Lock } from 'lucide-react';
 
 interface DirectoryViewProps {
   mode: 'MEDIA' | 'FILES';
   messages: Message[];
+  isLocked?: boolean;
   onOpenVideo: (url: string, name: string, hash: string, duration?: string, size?: number) => void;
   onOpenImage: (url: string, name: string, hash: string) => void;
 }
@@ -13,11 +14,22 @@ interface DirectoryViewProps {
 export const DirectoryView: React.FC<DirectoryViewProps> = ({
   mode,
   messages,
+  isLocked = false,
   onOpenVideo,
   onOpenImage,
 }) => {
   const [filterType, setFilterType] = useState<'ALL' | 'VIDEO' | 'IMAGE'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
+
+  if (isLocked) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center font-mono text-xs text-[#94a3b8] h-full">
+        <Lock className="w-8 h-8 text-[#f59e0b] mb-2" />
+        <div className="text-sm font-bold text-[#f59e0b]">DIRECTORY LOCKED</div>
+        <div className="text-[11px] text-[#64748b] mt-1">Unlock room in messages tab to view shared files and media.</div>
+      </div>
+    );
+  }
 
   // Extract attachments from messages
   const attachments = messages

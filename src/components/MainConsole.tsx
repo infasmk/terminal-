@@ -2,13 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Message, MessageType, UploadProgress, UserProfile } from '../types';
 import { MessageItem } from './MessageItem';
 import { MessageComposer } from './MessageComposer';
-import { Lock, Search, Share2, ShieldCheck, Terminal } from 'lucide-react';
+import { Lock, Search, Share2, ShieldCheck, Terminal, Key, ArrowRight, AlertTriangle } from 'lucide-react';
 
 interface MainConsoleProps {
   messages: Message[];
   currentUid: string;
   currentRoomId: string;
   isRoomProtected?: boolean;
+  isLocked?: boolean;
+  onUnlockRoom?: (password: string) => Promise<boolean>;
   onOpenShareRoom: () => void;
   onSendMessage: (text: string, type?: MessageType) => Promise<void>;
   onFileUpload: (file: File) => void;
@@ -28,6 +30,8 @@ export const MainConsole: React.FC<MainConsoleProps> = ({
   currentUid,
   currentRoomId,
   isRoomProtected = false,
+  isLocked = false,
+  onUnlockRoom,
   onOpenShareRoom,
   onSendMessage,
   onFileUpload,
@@ -42,7 +46,33 @@ export const MainConsole: React.FC<MainConsoleProps> = ({
   soundAlerts,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [enteredPassword, setEnteredPassword] = useState('');
+  const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
   const chatBottomRef = useRef<HTMLDivElement>(null);
+
+  // Reset password state when currentRoomId changes
+  useEffect(() => {
+    setEnteredPassword('');
+    setUnlockError(null);
+  }, [currentRoomId]);
+
+  const handleAttemptUnlock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!enteredPassword.trim()) {
+      setUnlockError('PASSWORD IS REQUIRED');
+      return;
+    }
+    setUnlockError(null);
+    setIsVerifying(true);
+    if (onUnlockRoom) {
+      const ok = await onUnlockRoom(enteredPassword.trim());
+      if (!ok) {
+        setUnlockError('INCORRECT PASSWORD. ACCESS DENIED.');
+      }
+    }
+    setIsVerifying(false);
+  };
 
   // Find friend user
   const friendUser = usersList.find((u) => u.uid !== currentUid);
@@ -108,44 +138,95 @@ export const MainConsole: React.FC<MainConsoleProps> = ({
         </div>
       </div>
 
-      {/* Messages Scroll Area */}
-      <div className="flex-1 p-3 overflow-y-auto space-y-2">
-        {filteredMessages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-[#475569] text-xs space-y-2">
-            <Terminal className="w-6 h-6 text-[#10b981]/50" />
-            <div>NO MESSAGES IN ROOM #{currentRoomId}</div>
-            <div className="text-[10px] text-[#334155]">INITIATE TRANSMISSION BELOW</div>
+      {/* Messages / Lock Gate Area */}
+      {isLocked ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-4 bg-[#050706]">
+          <div className="w-full max-w-sm bg-[#070b09] border border-[#f59e0b] rounded-xs shadow-[0_0_25px_rgba(245,158,11,0.12)] p-4 sm:p-6 space-y-4 font-mono text-xs">
+            <div className="flex items-center space-x-2 text-[#f59e0b] border-b border-[#2d1f08] pb-2 font-bold">
+              <Lock className="w-4 h-4 shrink-0" />
+              <span>PRIVATE ROOM LOCKED</span>
+            </div>
+
+            <div className="text-[#94a3b8] text-[11px] leading-relaxed">
+              Access to <span className="text-[#10b981] font-bold">#{currentRoomId}</span> is password-protected. Enter room password to unlock messages and chat console.
+            </div>
+
+            {unlockError && (
+              <div className="bg-[#1f0a0a] border border-[#451212] p-2 text-[10px] text-[#ef4444] rounded-xs flex items-center space-x-1.5 font-bold">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>{unlockError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleAttemptUnlock} className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-[10px] text-[#94a3b8] font-bold flex items-center space-x-1">
+                  <Key className="w-3 h-3 text-[#f59e0b]" />
+                  <span>ENTER ROOM PASSWORD</span>
+                </label>
+                <input
+                  type="password"
+                  value={enteredPassword}
+                  onChange={(e) => setEnteredPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full bg-black border border-[#1e1e1e] focus:border-[#f59e0b] px-3 py-2 text-white text-sm outline-none rounded-xs font-mono text-center tracking-widest"
+                  autoFocus
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isVerifying}
+                className="w-full py-2 bg-[#f59e0b] text-black hover:bg-[#fbbf24] font-bold text-xs rounded-xs transition-colors flex items-center justify-center space-x-1"
+              >
+                <span>{isVerifying ? 'VERIFYING...' : 'UNLOCK ROOM ACCESS'}</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </form>
           </div>
-        ) : (
-          filteredMessages.map((msg) => (
-            <MessageItem
-              key={msg.id}
-              message={msg}
-              currentUid={currentUid}
-              onOpenVideo={onOpenVideo}
-              onOpenImage={onOpenImage}
-              onDeleteMessage={onDeleteMessage}
+        </div>
+      ) : (
+        <>
+          {/* Messages Scroll Area */}
+          <div className="flex-1 p-3 overflow-y-auto space-y-2">
+            {filteredMessages.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-[#475569] text-xs space-y-2">
+                <Terminal className="w-6 h-6 text-[#10b981]/50" />
+                <div>NO MESSAGES IN ROOM #{currentRoomId}</div>
+                <div className="text-[10px] text-[#334155]">INITIATE TRANSMISSION BELOW</div>
+              </div>
+            ) : (
+              filteredMessages.map((msg) => (
+                <MessageItem
+                  key={msg.id}
+                  message={msg}
+                  currentUid={currentUid}
+                  onOpenVideo={onOpenVideo}
+                  onOpenImage={onOpenImage}
+                  onDeleteMessage={onDeleteMessage}
+                />
+              ))
+            )}
+
+            <div ref={chatBottomRef} />
+          </div>
+
+          {/* Message Composer */}
+          <div className="shrink-0">
+            <MessageComposer
+              onSendMessage={onSendMessage}
+              onFileUpload={onFileUpload}
+              activeUpload={activeUpload}
+              onCancelUpload={onCancelUpload}
+              isFriendTyping={isFriendTyping}
+              friendName={friendName}
+              onUserTyping={onUserTyping}
+              expirationHours={expirationHours}
+              soundAlerts={soundAlerts}
             />
-          ))
-        )}
-
-        <div ref={chatBottomRef} />
-      </div>
-
-      {/* Message Composer */}
-      <div className="shrink-0">
-        <MessageComposer
-          onSendMessage={onSendMessage}
-          onFileUpload={onFileUpload}
-          activeUpload={activeUpload}
-          onCancelUpload={onCancelUpload}
-          isFriendTyping={isFriendTyping}
-          friendName={friendName}
-          onUserTyping={onUserTyping}
-          expirationHours={expirationHours}
-          soundAlerts={soundAlerts}
-        />
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

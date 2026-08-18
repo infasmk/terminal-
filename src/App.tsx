@@ -44,7 +44,6 @@ import { AccessDeniedModal } from './components/AccessDeniedModal';
 import { VideoPlayerModal } from './components/VideoPlayerModal';
 import { ImageViewerModal } from './components/ImageViewerModal';
 import { ShareRoomModal } from './components/ShareRoomModal';
-import { RoomLockModal } from './components/RoomLockModal';
 import { Footer } from './components/Footer';
 import { getRoomMeta, createOrUpdateRoom, RoomMeta } from './services/roomService';
 
@@ -96,7 +95,6 @@ export default function App() {
   // Room Password & Security State
   const [roomMetaMap, setRoomMetaMap] = useState<Record<string, RoomMeta>>({});
   const [unlockedRooms, setUnlockedRooms] = useState<Record<string, boolean>>({});
-  const [pendingLockedRoomId, setPendingLockedRoomId] = useState<string | null>(null);
   const [isShareRoomOpen, setIsShareRoomOpen] = useState(false);
 
   // Check URL params on initial mount
@@ -120,16 +118,16 @@ export default function App() {
       if (!isMounted) return;
       if (meta) {
         setRoomMetaMap((prev) => ({ ...prev, [currentRoomId]: meta }));
-        // If room has password and not unlocked, lock room
-        if (meta.password && !unlockedRooms[currentRoomId]) {
-          setPendingLockedRoomId(currentRoomId);
-        }
       }
     });
     return () => {
       isMounted = false;
     };
   }, [currentRoomId]);
+
+  const isCurrentRoomLocked = Boolean(
+    roomMetaMap[currentRoomId]?.password && !unlockedRooms[currentRoomId]
+  );
 
   const handleSelectRoom = async (roomId: string, passwordProvided?: string) => {
     const targetRoom = roomId.toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
@@ -144,19 +142,11 @@ export default function App() {
       setRoomMetaMap((prev) => ({ ...prev, [targetRoom]: meta }));
     }
 
-    if (passwordProvided) {
-      await createOrUpdateRoom(targetRoom, passwordProvided, currentUser?.uid || 'OPERATOR');
-      meta.password = passwordProvided;
-      setRoomMetaMap((prev) => ({ ...prev, [targetRoom]: { ...meta, password: passwordProvided } }));
+    if (passwordProvided && passwordProvided.trim()) {
+      await createOrUpdateRoom(targetRoom, passwordProvided.trim(), currentUser?.uid || 'OPERATOR');
+      meta.password = passwordProvided.trim();
+      setRoomMetaMap((prev) => ({ ...prev, [targetRoom]: { ...meta, password: passwordProvided.trim() } }));
       setUnlockedRooms((prev) => ({ ...prev, [targetRoom]: true }));
-      setCurrentRoomId(targetRoom);
-      localStorage.setItem('nexus_room_id', targetRoom);
-      return;
-    }
-
-    if (meta.password && !unlockedRooms[targetRoom]) {
-      setPendingLockedRoomId(targetRoom);
-      return;
     }
 
     setCurrentRoomId(targetRoom);
@@ -164,21 +154,17 @@ export default function App() {
   };
 
   const handleUnlockRoom = async (enteredPassword: string): Promise<boolean> => {
-    if (!pendingLockedRoomId) return false;
-    let meta = roomMetaMap[pendingLockedRoomId];
+    let meta = roomMetaMap[currentRoomId];
     if (!meta) {
-      meta = (await getRoomMeta(pendingLockedRoomId)) || {
-        roomId: pendingLockedRoomId,
+      meta = (await getRoomMeta(currentRoomId)) || {
+        roomId: currentRoomId,
         createdAt: Date.now(),
         createdBy: currentUser?.uid || 'OPERATOR',
       };
     }
 
     if (!meta.password || meta.password === enteredPassword.trim()) {
-      setUnlockedRooms((prev) => ({ ...prev, [pendingLockedRoomId]: true }));
-      setCurrentRoomId(pendingLockedRoomId);
-      localStorage.setItem('nexus_room_id', pendingLockedRoomId);
-      setPendingLockedRoomId(null);
+      setUnlockedRooms((prev) => ({ ...prev, [currentRoomId]: true }));
       return true;
     }
 
@@ -248,6 +234,12 @@ export default function App() {
     });
 
     // Messages subscription for active Room ID
+    const isLocked = Boolean(roomMetaMap[currentRoomId]?.password && !unlockedRooms[currentRoomId]);
+    if (isLocked) {
+      setMessages([]);
+      return;
+    }
+
     const unsubMessages = subscribeToMessages(currentRoomId, currentUser.uid, (msgs) => {
       setMessages(msgs);
 
@@ -316,6 +308,8 @@ export default function App() {
 
   const handleSendMessage = async (text: string, type: MessageType = 'text') => {
     if (!currentUser) return;
+    if (isCurrentRoomLocked) return;
+
     await sendMessage(
       currentRoomId,
       currentUser.uid,
@@ -330,6 +324,7 @@ export default function App() {
 
   const handleFileUpload = (file: File) => {
     if (!currentUser) return;
+    if (isCurrentRoomLocked) return;
 
     const { cancel, promise } = uploadFileWithProgress(file, currentUser.uid, (progress) => {
       setActiveUpload(progress);
@@ -456,6 +451,8 @@ export default function App() {
               currentUid={currentUser.uid}
               currentRoomId={currentRoomId}
               isRoomProtected={Boolean(roomMetaMap[currentRoomId]?.password)}
+              isLocked={isCurrentRoomLocked}
+              onUnlockRoom={handleUnlockRoom}
               onOpenShareRoom={() => setIsShareRoomOpen(true)}
               onSendMessage={handleSendMessage}
               onFileUpload={handleFileUpload}
@@ -477,6 +474,7 @@ export default function App() {
             <DirectoryView
               mode={currentView}
               messages={messages}
+              isLocked={isCurrentRoomLocked}
               onOpenVideo={(url, name, hash, duration, size) =>
                 setActiveVideo({ url, name, hash, duration, size })
               }
@@ -488,15 +486,6 @@ export default function App() {
 
       {/* Footer Status Bar */}
       <Footer />
-
-      {/* Room Unlock Password Modal */}
-      {pendingLockedRoomId && (
-        <RoomLockModal
-          roomId={pendingLockedRoomId}
-          onUnlock={handleUnlockRoom}
-          onCancel={() => setPendingLockedRoomId(null)}
-        />
-      )}
 
       {/* Share Room & Password Modal */}
       {isShareRoomOpen && (

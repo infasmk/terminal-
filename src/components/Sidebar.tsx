@@ -39,8 +39,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [customRoomInput, setCustomRoomInput] = React.useState('');
   const [customPasswordInput, setCustomPasswordInput] = React.useState('');
 
-  const defaultRooms = ['ROOM_ALPHA', 'SECURE_ROOM_01', 'OPS_CENTER', 'DEV_HQ'];
-
   const handleJoinCustomRoom = (e: React.FormEvent) => {
     e.preventDefault();
     if (customRoomInput.trim()) {
@@ -93,87 +91,55 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* ROOM CHANNELS */}
           <section className="space-y-2">
             <div className="flex items-center justify-between border-b border-[#1e1e1e] pb-1">
-              <h3 className="text-[10px] text-gray-500 tracking-[0.2em] uppercase font-bold">
-                ROOMS // CHANNELS
+              <h3 className="text-[10px] text-gray-500 tracking-[0.2em] uppercase font-bold flex items-center space-x-1">
+                <Lock className="w-3 h-3 text-[#10b981]" />
+                <span>PRIVATE ROOM</span>
               </h3>
+            </div>
+
+            {/* Active Room Indicator Badge */}
+            <div className="bg-[#050907] border border-[#142218] p-2 rounded-xs flex items-center justify-between">
+              <div>
+                <div className="text-[9px] text-[#64748b]">ACTIVE ROOM</div>
+                <div className="text-xs font-bold text-[#10b981] font-mono tracking-wider truncate max-w-[120px]">
+                  #{currentRoomId}
+                </div>
+              </div>
+              <span className="text-[9px] bg-[#0d1f14] border border-[#162a1e] text-[#10b981] px-1.5 py-0.5 font-bold">
+                JOINED
+              </span>
+            </div>
+
+            {/* Enter / Join Private Room Form */}
+            <form onSubmit={handleJoinCustomRoom} className="space-y-2 p-2.5 bg-[#050907] border border-[#162a1e] rounded-xs">
+              <div className="text-[10px] text-[#10b981] font-bold">JOIN / ENTER ROOM</div>
+              <div>
+                <label className="text-[9px] text-[#64748b]">ROOM ID</label>
+                <input
+                  type="text"
+                  value={customRoomInput}
+                  onChange={(e) => setCustomRoomInput(e.target.value)}
+                  placeholder="e.g. ROOM_999 or TEAM_X"
+                  className="w-full bg-black border border-[#1e1e1e] px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#10b981] font-mono rounded-xs"
+                />
+              </div>
+              <div>
+                <label className="text-[9px] text-[#64748b]">PASSWORD (IF PROTECTED)</label>
+                <input
+                  type="password"
+                  value={customPasswordInput}
+                  onChange={(e) => setCustomPasswordInput(e.target.value)}
+                  placeholder="Enter password if set"
+                  className="w-full bg-black border border-[#1e1e1e] px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#10b981] font-mono rounded-xs"
+                />
+              </div>
               <button
-                onClick={() => setIsCustomRoomOpen(!isCustomRoomOpen)}
-                className="text-[10px] text-[#10b981] hover:text-white font-bold transition-colors"
-                title="Enter custom Room ID"
+                type="submit"
+                className="w-full py-1 text-[10px] bg-[#10b981] text-black font-bold hover:bg-[#34d399] transition-colors rounded-xs uppercase tracking-wider"
               >
-                [+ ROOM]
+                ENTER / SWITCH ROOM
               </button>
-            </div>
-
-            {/* Custom Room Input Form */}
-            {isCustomRoomOpen && (
-              <form onSubmit={handleJoinCustomRoom} className="space-y-2 p-2.5 bg-[#050907] border border-[#162a1e] rounded-xs">
-                <div className="text-[10px] text-[#10b981] font-bold">JOIN / CREATE PRIVATE ROOM</div>
-                <div>
-                  <label className="text-[9px] text-[#64748b]">ROOM ID</label>
-                  <input
-                    type="text"
-                    value={customRoomInput}
-                    onChange={(e) => setCustomRoomInput(e.target.value)}
-                    placeholder="e.g. ROOM_999 or TEAM_X"
-                    className="w-full bg-black border border-[#1e1e1e] px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#10b981] font-mono rounded-xs"
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="text-[9px] text-[#64748b]">ROOM PASSWORD (OPTIONAL)</label>
-                  <input
-                    type="password"
-                    value={customPasswordInput}
-                    onChange={(e) => setCustomPasswordInput(e.target.value)}
-                    placeholder="Set password or leave empty"
-                    className="w-full bg-black border border-[#1e1e1e] px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#10b981] font-mono rounded-xs"
-                  />
-                </div>
-                <div className="flex justify-end space-x-1 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setIsCustomRoomOpen(false)}
-                    className="px-2 py-0.5 text-[9px] text-[#64748b] hover:text-white"
-                  >
-                    CANCEL
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-2.5 py-0.5 text-[9px] bg-[#10b981] text-black font-bold hover:bg-[#34d399] rounded-xs"
-                  >
-                    ENTER ROOM
-                  </button>
-                </div>
-              </form>
-            )}
-
-            <div className="space-y-1">
-              {Array.from(new Set([currentRoomId, ...defaultRooms])).map((roomId) => {
-                const isActive = currentRoomId === roomId;
-                return (
-                  <button
-                    key={roomId}
-                    onClick={() => {
-                      onSelectRoom(roomId);
-                      onSelectView('MESSAGES');
-                      onCloseMobile();
-                    }}
-                    className={`w-full text-left px-2 py-1 flex items-center justify-between border-l text-xs transition-colors ${
-                      isActive
-                        ? 'bg-[#0d1f14] text-[#10b981] border-[#10b981] font-bold'
-                        : 'text-gray-500 border-transparent hover:text-gray-300 hover:bg-[#1e1e1e]/40'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-1.5 truncate">
-                      <span className={isActive ? 'text-[#10b981]' : 'text-gray-600'}>&gt;</span>
-                      <span className="truncate">{roomId}</span>
-                    </div>
-                    {isActive && <span className="text-[9px] text-[#10b981] font-bold">[ACTIVE]</span>}
-                  </button>
-                );
-              })}
-            </div>
+            </form>
           </section>
 
           {/* DIRECTORY */}

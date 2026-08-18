@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Terminal, Shield, KeyRound, AlertOctagon, User } from 'lucide-react';
+import { Terminal, KeyRound, AlertOctagon, User } from 'lucide-react';
 
 interface LoginConsoleProps {
   onConnectWithName: (name: string) => Promise<void>;
@@ -19,15 +19,6 @@ export const LoginConsole: React.FC<LoginConsoleProps> = ({
     setIsLoading(true);
     try {
       await onConnectWithName(operatorName.trim());
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handlePreset = async (presetName: string) => {
-    setIsLoading(true);
-    try {
-      await onConnectWithName(presetName);
     } finally {
       setIsLoading(false);
     }
@@ -85,42 +76,17 @@ export const LoginConsole: React.FC<LoginConsoleProps> = ({
           <button
             type="submit"
             disabled={isLoading || !operatorName.trim()}
-            className="w-full py-2.5 bg-green-950/20 hover:bg-green-900/30 text-green-500 hover:text-green-400 font-bold border border-green-900/50 rounded-xs transition-all text-xs tracking-wider flex items-center justify-center space-x-2 disabled:opacity-40"
+            className="w-full py-2.5 bg-green-950/20 hover:bg-green-900/30 text-green-500 hover:text-green-400 font-bold border border-green-900/50 rounded-xs transition-all text-xs tracking-wider flex items-center justify-center space-x-2 disabled:opacity-40 cursor-pointer"
           >
             <KeyRound className="w-3.5 h-3.5" />
             <span>{isLoading ? 'CONNECTING...' : '[ ENTER CONSOLE ]'}</span>
           </button>
         </form>
 
-        {/* Quick Operator Presets */}
-        <div className="pt-2 border-t border-[#1e1e1e] space-y-2">
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center justify-between font-bold">
-            <span>QUICK PRESETS (2-PERSON TEST)</span>
-            <Shield className="w-3 h-3 text-green-500" />
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-[10px]">
-            <button
-              onClick={() => handlePreset('OPERATOR_01')}
-              disabled={isLoading}
-              className="p-2 bg-black border border-[#1e1e1e] hover:border-green-500 text-green-500 rounded-xs font-bold transition-all text-center"
-            >
-              OPERATOR_01 (ALPHA)
-            </button>
-            <button
-              onClick={() => handlePreset('OPERATOR_02')}
-              disabled={isLoading}
-              className="p-2 bg-black border border-[#1e1e1e] hover:border-blue-400 text-blue-400 rounded-xs font-bold transition-all text-center"
-            >
-              OPERATOR_02 (BETA)
-            </button>
-          </div>
-        </div>
-
         {/* Security Footer Note */}
         <div className="text-[10px] text-gray-600 pt-2 border-t border-[#1e1e1e] flex justify-between">
-          <span>ACCESS: OPEN</span>
-          <span>CHANNEL: PRIVATE_01</span>
+          <span>ACCESS: SECURE</span>
+          <span>SYSTEM: ENCRYPTED</span>
         </div>
       </div>
 
