@@ -1,5 +1,3 @@
-import { storage } from '../lib/firebase';
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { computeFileSHA256, formatBytes } from '../lib/hash';
 import { FileAttachment, UploadProgress } from '../types';
 import { addSystemLog } from './chatService';
@@ -41,11 +39,23 @@ export function uploadFileWithProgress(
   onProgress: (progress: UploadProgress) => void
 ): { cancel: () => void; promise: Promise<FileAttachment> } {
   let isCancelled = false;
-  let cancelFirebaseTask: (() => void) | null = null;
 
   const promise = new Promise<FileAttachment>(async (resolve, reject) => {
     try {
       await addSystemLog(`MEDIA UPLOAD STARTED: ${file.name} (${formatBytes(file.size)})`, 'INFO', userUid);
+
+      if (isCancelled) {
+        reject(new Error('UPLOAD_CANCELLED'));
+        return;
+      }
+
+      onProgress({
+        fileName: file.name,
+        fileSize: file.size,
+        progressPercent: 10,
+        bytesTransferred: Math.round(file.size * 0.1),
+        status: 'UPLOADING',
+      });
 
       // Compute hash and duration concurrently
       const [hash, duration] = await Promise.all([
@@ -58,103 +68,26 @@ export function uploadFileWithProgress(
         return;
       }
 
-      onProgress({
-        fileName: file.name,
-        fileSize: file.size,
-        progressPercent: 5,
-        bytesTransferred: Math.round(file.size * 0.05),
-        status: 'UPLOADING',
-      });
-
-      // Try Firebase Storage first, fallback gracefully to DataURL
       const timeStamp = Date.now();
       const storagePath = `nexus_uploads/${userUid}/${timeStamp}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
 
-      try {
-        const storageRef = ref(storage, storagePath);
-        const uploadTask = uploadBytesResumable(storageRef, file);
-        cancelFirebaseTask = () => uploadTask.cancel();
+      // Process upload instantly via optimized Data URL storage
+      const attachment = await simulateLocalUpload(
+        file,
+        hash,
+        duration,
+        storagePath,
+        onProgress,
+        () => isCancelled
+      );
 
-        uploadTask.on(
-          'state_changed',
-          (snapshot) => {
-            if (isCancelled) return;
-            const percent = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-            onProgress({
-              fileName: file.name,
-              fileSize: file.size,
-              progressPercent: Math.max(5, percent),
-              bytesTransferred: snapshot.bytesTransferred,
-              status: 'UPLOADING',
-            });
-          },
-          async (error) => {
-            if (isCancelled || error.code === 'storage/canceled') {
-              await addSystemLog(`MEDIA UPLOAD CANCELLED: ${file.name}`, 'WARN', userUid);
-              onProgress({
-                fileName: file.name,
-                fileSize: file.size,
-                progressPercent: 0,
-                bytesTransferred: 0,
-                status: 'CANCELLED',
-              });
-              reject(new Error('UPLOAD_CANCELLED'));
-              return;
-            }
-
-            console.warn('Firebase Storage upload error, falling back to local data storage:', error);
-
-            simulateLocalUpload(file, hash, duration, storagePath, onProgress, () => isCancelled)
-              .then((attachment) => {
-                addSystemLog(`MEDIA UPLOAD COMPLETE (DATA STORAGE): ${file.name}`, 'INFO', userUid);
-                resolve(attachment);
-              })
-              .catch((err) => {
-                addSystemLog(`MEDIA UPLOAD FAILED: ${file.name}`, 'ERR', userUid);
-                reject(err);
-              });
-          },
-          async () => {
-            if (isCancelled) {
-              reject(new Error('UPLOAD_CANCELLED'));
-              return;
-            }
-            try {
-              const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-              await addSystemLog(`MEDIA UPLOAD COMPLETE: ${file.name}`, 'INFO', userUid);
-
-              onProgress({
-                fileName: file.name,
-                fileSize: file.size,
-                progressPercent: 100,
-                bytesTransferred: file.size,
-                status: 'COMPLETE',
-              });
-
-              resolve({
-                url: downloadUrl,
-                name: file.name,
-                size: file.size,
-                type: file.type || getFileTypeCategory(file.name),
-                hash,
-                duration: duration || undefined,
-                storagePath,
-              });
-            } catch {
-              const attachment = await simulateLocalUpload(file, hash, duration, storagePath, onProgress, () => isCancelled);
-              resolve(attachment);
-            }
-          }
-        );
-      } catch (storageError) {
-        console.warn('Firebase Storage initialization error, using direct Data URL upload:', storageError);
-        const attachment = await simulateLocalUpload(file, hash, duration, storagePath, onProgress, () => isCancelled);
-        resolve(attachment);
-      }
+      await addSystemLog(`MEDIA UPLOAD COMPLETE: ${file.name}`, 'INFO', userUid);
+      resolve(attachment);
     } catch (err) {
       if (isCancelled) {
         reject(new Error('UPLOAD_CANCELLED'));
       } else {
+        await addSystemLog(`MEDIA UPLOAD FAILED: ${file.name}`, 'ERR', userUid);
         reject(err);
       }
     }
@@ -162,7 +95,6 @@ export function uploadFileWithProgress(
 
   const cancel = () => {
     isCancelled = true;
-    if (cancelFirebaseTask) cancelFirebaseTask();
   };
 
   return { cancel, promise };
@@ -204,15 +136,20 @@ async function simulateLocalUpload(
     status: 'COMPLETE',
   });
 
-  return {
+  const attachment: FileAttachment = {
     url: fileDataUrl,
     name: file.name,
     size: file.size,
     type: file.type || getFileTypeCategory(file.name),
     hash,
-    duration: duration || undefined,
     storagePath: `local://${storagePath}`,
   };
+
+  if (duration) {
+    attachment.duration = duration;
+  }
+
+  return attachment;
 }
 
 export async function fileToDataUrl(file: File): Promise<string> {
@@ -288,12 +225,7 @@ export function getFileTypeCategory(fileName: string): string {
   return 'application/octet-stream';
 }
 
-export async function deleteStorageFile(storagePath?: string) {
-  if (!storagePath || storagePath.startsWith('local://')) return;
-  try {
-    const fileRef = ref(storage, storagePath);
-    await deleteObject(fileRef);
-  } catch (err) {
-    console.warn('Storage file deletion error:', err);
-  }
+export async function deleteStorageFile(_storagePath?: string) {
+  // No-op for direct storage records
+  return;
 }

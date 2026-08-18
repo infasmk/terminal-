@@ -1,9 +1,10 @@
 import React from 'react';
-import { Shield, Menu, Terminal, LogOut, Settings as SettingsIcon } from 'lucide-react';
+import { Hash, Menu, LogOut, Settings as SettingsIcon } from 'lucide-react';
 
 interface TopBarProps {
   currentOperator: string;
   uptimeString: string;
+  currentRoomId: string;
   onToggleSidebar: () => void;
   onOpenSettings: () => void;
   onSignOut: () => void;
@@ -12,6 +13,7 @@ interface TopBarProps {
 export const TopBar: React.FC<TopBarProps> = ({
   currentOperator,
   uptimeString,
+  currentRoomId,
   onToggleSidebar,
   onOpenSettings,
   onSignOut,
@@ -29,8 +31,14 @@ export const TopBar: React.FC<TopBarProps> = ({
         </button>
 
         <div className="flex items-center space-x-2">
-          <span className="text-white font-bold tracking-widest text-xs">NEXUS // SERVER CONSOLE</span>
-          <span className="hidden sm:inline text-gray-600 px-1 text-[10px] font-mono">v2.4.1-STABLE</span>
+          <span className="text-white font-bold tracking-widest text-xs">NEXUS // CONSOLE</span>
+          <span className="hidden sm:inline text-gray-600 px-1 text-[10px] font-mono">v2.4.1</span>
+        </div>
+
+        {/* Current Room Badge */}
+        <div className="flex items-center space-x-1.5 bg-[#07130c] border border-[#162a1e] text-[#10b981] px-2 py-0.5 rounded-xs font-bold text-[10px]">
+          <Hash className="w-3 h-3 text-[#10b981]" />
+          <span>{currentRoomId || 'ROOM_ALPHA'}</span>
         </div>
       </div>
 

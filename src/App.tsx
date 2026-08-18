@@ -28,6 +28,7 @@ import {
   deleteMessage,
   subscribeToSystemLogs,
   addSystemLog,
+  clearAllMessagesAndLogs,
   purgeExpiredMessages,
 } from './services/chatService';
 import { uploadFileWithProgress } from './services/storageService';
@@ -77,6 +78,9 @@ export default function App() {
 
   // Application State
   const [currentView, setCurrentView] = useState<ViewDirectory>('MESSAGES');
+  const [currentRoomId, setCurrentRoomId] = useState<string>(
+    () => localStorage.getItem('nexus_room_id') || 'ROOM_ALPHA'
+  );
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
@@ -146,8 +150,8 @@ export default function App() {
       setUsersList(users);
     });
 
-    // Messages subscription
-    const unsubMessages = subscribeToMessages(currentUser.uid, (msgs) => {
+    // Messages subscription for active Room ID
+    const unsubMessages = subscribeToMessages(currentRoomId, currentUser.uid, (msgs) => {
       setMessages(msgs);
 
       // Play sound on new incoming message
@@ -173,15 +177,15 @@ export default function App() {
       setSystemLogs(logs);
     });
 
-    // Periodically purge expired messages
-    purgeExpiredMessages();
+    // Periodically purge expired messages for active Room ID
+    purgeExpiredMessages(currentRoomId);
 
     return () => {
       unsubUsers();
       unsubMessages();
       unsubLogs();
     };
-  }, [currentUser, settings.soundAlerts]);
+  }, [currentUser, currentRoomId, settings.soundAlerts]);
 
   // Connect with Name Handler
   const handleConnectWithName = async (name: string) => {
@@ -202,8 +206,8 @@ export default function App() {
 
   const handleSignOut = async () => {
     if (currentUser) {
+      await clearAllMessagesAndLogs(currentRoomId, currentUser.uid);
       await updateUserPresence(currentUser.uid, currentUser.email, currentUser.displayName, false);
-      await addSystemLog(`SESSION TERMINATED: ${currentUser.displayName}`, 'SEC', currentUser.uid);
     }
     localStorage.removeItem('nexus_operator_name');
     setOperatorName('');
@@ -216,6 +220,7 @@ export default function App() {
   const handleSendMessage = async (text: string, type: MessageType = 'text') => {
     if (!currentUser) return;
     await sendMessage(
+      currentRoomId,
       currentUser.uid,
       currentOperator,
       `${currentOperator}@nexus.internal`,
@@ -237,11 +242,12 @@ export default function App() {
 
     promise
       .then(async (attachment: FileAttachment) => {
-        const isVideo = file.type.startsWith('video/') || ['mp4', 'webm', 'mov'].some((ext) => file.name.endsWith(ext));
-        const isImage = file.type.startsWith('image/') || ['jpg', 'png', 'gif'].some((ext) => file.name.endsWith(ext));
+        const isVideo = file.type.startsWith('video/') || ['mp4', 'webm', 'mov', 'avi', 'mkv'].some((ext) => file.name.toLowerCase().endsWith(ext));
+        const isImage = file.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].some((ext) => file.name.toLowerCase().endsWith(ext));
         const msgType: MessageType = isVideo ? 'video' : isImage ? 'image' : 'file';
 
         await sendMessage(
+          currentRoomId,
           currentUser.uid,
           currentOperator,
           `${currentOperator}@nexus.internal`,
@@ -320,6 +326,7 @@ export default function App() {
       <TopBar
         currentOperator={currentOperator}
         uptimeString={formatUptime(uptimeSeconds)}
+        currentRoomId={currentRoomId}
         onToggleSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onSignOut={handleSignOut}
@@ -331,6 +338,11 @@ export default function App() {
         <Sidebar
           currentView={currentView}
           onSelectView={setCurrentView}
+          currentRoomId={currentRoomId}
+          onSelectRoom={(rId) => {
+            setCurrentRoomId(rId);
+            localStorage.setItem('nexus_room_id', rId);
+          }}
           onlineCount={usersList.filter((u) => u.isOnline).length || 1}
           totalUsersCount={usersList.length || 2}
           uptimeString={formatUptime(uptimeSeconds)}
@@ -414,6 +426,11 @@ export default function App() {
           userEmail={currentUser.email || ''}
           onClose={() => setIsSettingsOpen(false)}
           onSignOut={handleSignOut}
+          onPurgeAll={async () => {
+            if (currentUser) {
+              await clearAllMessagesAndLogs(currentRoomId, currentUser.uid);
+            }
+          }}
         />
       )}
     </div>

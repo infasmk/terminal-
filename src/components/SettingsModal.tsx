@@ -9,6 +9,7 @@ interface SettingsModalProps {
   userEmail: string;
   onClose: () => void;
   onSignOut: () => void;
+  onPurgeAll?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -18,6 +19,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   userEmail,
   onClose,
   onSignOut,
+  onPurgeAll,
 }) => {
   return (
     <div className="fixed inset-0 bg-[#050706]/90 backdrop-blur-xs z-50 flex items-center justify-center p-3 font-mono text-xs select-none">
@@ -100,7 +102,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             <div className="space-y-2 text-[#94a3b8]">
-              <div className="bg-[#050907] p-2.5 rounded-xs border border-[#121f17] space-y-1.5">
+              <div className="bg-[#050907] p-2.5 rounded-xs border border-[#121f17] space-y-2">
                 <div className="flex justify-between items-center">
                   <span>Automated Message Expiration</span>
                   <span className="text-[#10b981] font-bold">
@@ -130,6 +132,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </button>
                   ))}
                 </div>
+
+                {onPurgeAll && (
+                  <div className="pt-2 border-t border-[#121f17]">
+                    <button
+                      type="button"
+                      onClick={onPurgeAll}
+                      className="w-full py-1.5 bg-[#1f1008] border border-[#3b1c0a] text-[#f97316] hover:bg-[#f97316] hover:text-black font-bold text-[10px] rounded-xs transition-colors"
+                    >
+                      CLEAR ALL MESSAGES & LOGS NOW
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

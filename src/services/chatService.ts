@@ -57,6 +57,7 @@ export function subscribeToSystemLogs(callback: (logs: SystemLog[]) => void) {
 }
 
 export async function sendMessage(
+  channelId: string,
   senderUid: string,
   senderName: string,
   senderEmail: string,
@@ -68,28 +69,43 @@ export async function sendMessage(
   const now = Date.now();
   const expiresAt = expirationHours > 0 ? now + expirationHours * 3600 * 1000 : undefined;
 
-  const msgData = {
-    channelId: CHANNEL_ID,
+  // Clean attachment object to ensure no undefined fields exist
+  let cleanAttachment: Record<string, unknown> | null = null;
+  if (attachment) {
+    cleanAttachment = {};
+    for (const [key, val] of Object.entries(attachment)) {
+      if (val !== undefined) {
+        cleanAttachment[key] = val;
+      }
+    }
+  }
+
+  const msgData: Record<string, unknown> = {
+    channelId: channelId || 'ROOM_ALPHA',
     senderUid,
     senderName,
     senderEmail,
     text: text || '',
     type,
-    attachment: attachment || null,
+    attachment: cleanAttachment,
     readBy: [senderUid],
     createdAt: now,
-    ...(expiresAt ? { expiresAt } : {}),
   };
 
+  if (expiresAt !== undefined) {
+    msgData.expiresAt = expiresAt;
+  }
+
   const docRef = await addDoc(collection(db, 'messages'), msgData);
-  await addSystemLog(`MESSAGE TRANSMITTED (${type.toUpperCase()}) BY ${senderName}`, 'INFO', senderUid);
+  await addSystemLog(`MESSAGE TRANSMITTED (${type.toUpperCase()}) IN ROOM [${channelId}] BY ${senderName}`, 'INFO', senderUid);
   return docRef.id;
 }
 
-export function subscribeToMessages(currentUid: string, callback: (messages: Message[]) => void) {
+export function subscribeToMessages(channelId: string, currentUid: string, callback: (messages: Message[]) => void) {
+  const activeChannel = channelId || 'ROOM_ALPHA';
   const q = query(
     collection(db, 'messages'),
-    where('channelId', '==', CHANNEL_ID),
+    where('channelId', '==', activeChannel),
     orderBy('createdAt', 'asc')
   );
 
@@ -155,9 +171,32 @@ export async function deleteMessage(messageId: string, userUid: string) {
   }
 }
 
-export async function purgeExpiredMessages() {
+export async function clearAllMessagesAndLogs(channelId: string, userUid: string) {
   try {
-    const q = query(collection(db, 'messages'), where('channelId', '==', CHANNEL_ID));
+    const activeChannel = channelId || 'ROOM_ALPHA';
+    // Delete all messages in the specified room
+    const msgQuery = query(collection(db, 'messages'), where('channelId', '==', activeChannel));
+    const msgSnap = await getDocs(msgQuery);
+    const deleteMsgPromises = msgSnap.docs.map((docSnap) => deleteDoc(doc(db, 'messages', docSnap.id)));
+    await Promise.all(deleteMsgPromises);
+
+    // Delete all system logs
+    const logQuery = query(collection(db, 'system_logs'));
+    const logSnap = await getDocs(logQuery);
+    const deleteLogPromises = logSnap.docs.map((docSnap) => deleteDoc(doc(db, 'system_logs', docSnap.id)));
+    await Promise.all(deleteLogPromises);
+
+    // Write log entry for clean state
+    await addSystemLog(`ROOM [${activeChannel}] CLEARED & SYSTEM LOGS PURGED`, 'SEC', userUid);
+  } catch (err) {
+    console.error('Error clearing messages and logs:', err);
+  }
+}
+
+export async function purgeExpiredMessages(channelId: string) {
+  try {
+    const activeChannel = channelId || 'ROOM_ALPHA';
+    const q = query(collection(db, 'messages'), where('channelId', '==', activeChannel));
     const snap = await getDocs(q);
     const now = Date.now();
     snap.forEach((docSnap) => {
