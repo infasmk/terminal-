@@ -1,7 +1,8 @@
 import React from 'react';
 import { Message } from '../types';
 import { formatBytes, truncateHash } from '../lib/hash';
-import { Play, Download, FileText, Image as ImageIcon, Trash2, Check, CheckCheck, Eye } from 'lucide-react';
+import { Play, Download, FileText, Image as ImageIcon, Trash2, Eye, Loader2 } from 'lucide-react';
+import { useResolvedAttachmentUrl } from '../hooks/useResolvedAttachmentUrl.ts';
 
 interface MessageItemProps {
   message: Message;
@@ -20,6 +21,8 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 }) => {
   const isSelf = message.senderUid === currentUid;
   const timeStr = new Date(message.createdAt).toTimeString().split(' ')[0]; // e.g. 20:43:21
+
+  const { resolvedUrl, isLoading, loadingPercent, error } = useResolvedAttachmentUrl(message.attachment);
 
   // Read status logic
   const readByOthers = message.readBy.filter((uid) => uid !== message.senderUid).length > 0;
@@ -40,7 +43,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
         {isSelf && (
           <button
             onClick={() => onDeleteMessage(message.id)}
-            className="text-gray-600 hover:text-red-400 transition-colors p-0.5"
+            className="text-gray-600 hover:text-red-400 transition-colors p-0.5 cursor-pointer"
             title="Delete record"
           >
             <Trash2 className="w-3 h-3" />
@@ -69,28 +72,47 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                 <span className="text-[9px] text-gray-600">MP4 / {formatBytes(message.attachment.size)}</span>
               </div>
 
-              {/* Video Preview Frame */}
+              {/* Video Loading / Preview Frame */}
               <div className="relative group bg-black rounded-xs overflow-hidden border border-[#1e1e1e] aspect-video max-h-56 flex items-center justify-center">
-                <video
-                  src={message.attachment.url}
-                  className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
-                  preload="metadata"
-                />
-                <button
-                  onClick={() =>
-                    onOpenVideo(
-                      message.attachment!.url,
-                      message.attachment!.name,
-                      message.attachment!.hash,
-                      message.attachment!.duration,
-                      message.attachment!.size
-                    )
-                  }
-                  className="absolute inset-0 m-auto w-11 h-11 bg-black/80 hover:bg-green-500 border border-green-500 rounded-full flex items-center justify-center text-green-500 hover:text-black transition-all shadow-lg"
-                  title="Play Video Stream"
-                >
-                  <Play className="w-5 h-5 fill-current ml-0.5" />
-                </button>
+                {isLoading ? (
+                  <div className="flex flex-col items-center justify-center p-4 space-y-2 text-center">
+                    <Loader2 className="w-6 h-6 text-[#10b981] animate-spin" />
+                    <div className="text-[10px] text-[#10b981] font-bold font-mono tracking-wider">
+                      ASSEMBLING STREAM ({loadingPercent}%)
+                    </div>
+                    <div className="w-32 bg-[#122018] h-1.5 rounded-full overflow-hidden border border-[#162a1e]">
+                      <div
+                        className="bg-[#10b981] h-full transition-all duration-300"
+                        style={{ width: `${loadingPercent}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : error ? (
+                  <div className="text-[10px] text-red-400 font-bold p-2 text-center">{error}</div>
+                ) : (
+                  <>
+                    <video
+                      src={resolvedUrl}
+                      className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                      preload="metadata"
+                    />
+                    <button
+                      onClick={() =>
+                        onOpenVideo(
+                          resolvedUrl,
+                          message.attachment!.name,
+                          message.attachment!.hash,
+                          message.attachment!.duration,
+                          message.attachment!.size
+                        )
+                      }
+                      className="absolute inset-0 m-auto w-11 h-11 bg-black/80 hover:bg-green-500 border border-green-500 rounded-full flex items-center justify-center text-green-500 hover:text-black transition-all shadow-lg cursor-pointer"
+                      title="Play Video Stream"
+                    >
+                      <Play className="w-5 h-5 fill-current ml-0.5" />
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* File Metadata */}
@@ -98,16 +120,20 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                 <div>NAME: {message.attachment.name}</div>
                 <div>HASH: {truncateHash(message.attachment.hash, 10)}</div>
                 <div className="pt-2 flex justify-between items-center border-t border-[#1e1e1e]">
-                  <a
-                    href={message.attachment.url}
-                    download={message.attachment.name}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-green-500 hover:text-green-400 font-bold flex items-center space-x-1"
-                  >
-                    <Download className="w-3 h-3" />
-                    <span>[ DOWNLOAD ]</span>
-                  </a>
+                  {resolvedUrl ? (
+                    <a
+                      href={resolvedUrl}
+                      download={message.attachment.name}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-green-500 hover:text-green-400 font-bold flex items-center space-x-1"
+                    >
+                      <Download className="w-3 h-3" />
+                      <span>[ DOWNLOAD ]</span>
+                    </a>
+                  ) : (
+                    <span className="text-gray-600 text-[10px]">PREPARING STREAM...</span>
+                  )}
                   <span className="text-gray-600 text-[9px]">STORAGE_NODE_03</span>
                 </div>
               </div>
@@ -125,36 +151,45 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                 <span className="text-[9px] text-gray-600">{formatBytes(message.attachment.size)}</span>
               </div>
 
-              <div
-                onClick={() =>
-                  onOpenImage(message.attachment!.url, message.attachment!.name, message.attachment!.hash)
-                }
-                className="relative cursor-pointer group rounded-xs overflow-hidden border border-[#1e1e1e] max-h-60 flex items-center justify-center bg-black"
-              >
-                <img
-                  src={message.attachment.url}
-                  alt={message.attachment.name}
-                  className="max-h-60 object-contain group-hover:scale-[1.01] transition-transform"
-                />
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <span className="bg-black/90 text-green-500 border border-green-500 px-2 py-1 text-[10px] rounded-xs flex items-center space-x-1">
-                    <Eye className="w-3 h-3" />
-                    <span>ENLARGE PREVIEW</span>
-                  </span>
+              {isLoading ? (
+                <div className="flex flex-col items-center justify-center p-6 space-y-2 text-center bg-black aspect-video rounded-xs border border-[#1e1e1e]">
+                  <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+                  <div className="text-[10px] text-blue-400 font-mono">LOADING IMAGE ({loadingPercent}%)</div>
                 </div>
-              </div>
+              ) : (
+                <div
+                  onClick={() =>
+                    onOpenImage(resolvedUrl, message.attachment!.name, message.attachment!.hash)
+                  }
+                  className="relative cursor-pointer group rounded-xs overflow-hidden border border-[#1e1e1e] max-h-60 flex items-center justify-center bg-black"
+                >
+                  <img
+                    src={resolvedUrl}
+                    alt={message.attachment.name}
+                    className="max-h-60 object-contain group-hover:scale-[1.01] transition-transform"
+                  />
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <span className="bg-black/90 text-green-500 border border-green-500 px-2 py-1 text-[10px] rounded-xs flex items-center space-x-1">
+                      <Eye className="w-3 h-3" />
+                      <span>ENLARGE PREVIEW</span>
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="text-[10px] text-gray-400 flex justify-between items-center border-t border-[#1e1e1e] pt-1">
                 <span>HASH: {truncateHash(message.attachment.hash, 8)}</span>
-                <a
-                  href={message.attachment.url}
-                  download={message.attachment.name}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-green-500 hover:text-green-400 font-bold text-[9px]"
-                >
-                  [ DOWNLOAD ]
-                </a>
+                {resolvedUrl && (
+                  <a
+                    href={resolvedUrl}
+                    download={message.attachment.name}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-green-500 hover:text-green-400 font-bold text-[9px]"
+                  >
+                    [ DOWNLOAD ]
+                  </a>
+                )}
               </div>
             </div>
           )}
@@ -171,16 +206,20 @@ export const MessageItem: React.FC<MessageItemProps> = ({
               </div>
               <div>HASH: {truncateHash(message.attachment.hash, 12)}</div>
               <div className="pt-1 flex justify-between items-center border-t border-[#1e1e1e]">
-                <a
-                  href={message.attachment.url}
-                  download={message.attachment.name}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-green-500 hover:text-green-400 font-bold flex items-center space-x-1"
-                >
-                  <Download className="w-3 h-3" />
-                  <span>[ DOWNLOAD ]</span>
-                </a>
+                {resolvedUrl ? (
+                  <a
+                    href={resolvedUrl}
+                    download={message.attachment.name}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-green-500 hover:text-green-400 font-bold flex items-center space-x-1"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>[ DOWNLOAD ]</span>
+                  </a>
+                ) : (
+                  <span className="text-gray-600 text-[10px]">LOADING FILE...</span>
+                )}
                 <span className="text-gray-600 text-[9px]">SECURE RECORD</span>
               </div>
             </div>

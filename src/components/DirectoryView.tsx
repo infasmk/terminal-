@@ -1,7 +1,130 @@
 import React, { useState } from 'react';
-import { Message } from '../types';
+import { Message, FileAttachment } from '../types';
 import { formatBytes, truncateHash } from '../lib/hash';
-import { Film, FileText, Download, Play, Image as ImageIcon, Search, Lock } from 'lucide-react';
+import { Film, FileText, Download, Play, Image as ImageIcon, Search, Lock, Loader2 } from 'lucide-react';
+import { useResolvedAttachmentUrl } from '../hooks/useResolvedAttachmentUrl.ts';
+
+interface DirectoryViewProps {
+  mode: 'MEDIA' | 'FILES';
+  messages: Message[];
+  isLocked?: boolean;
+  onOpenVideo: (url: string, name: string, hash: string, duration?: string, size?: number) => void;
+  onOpenImage: (url: string, name: string, hash: string) => void;
+}
+
+const DirectoryMediaCard: React.FC<{
+  item: FileAttachment & { createdAt: number; type: string };
+  onOpenVideo: (url: string, name: string, hash: string, duration?: string, size?: number) => void;
+  onOpenImage: (url: string, name: string, hash: string) => void;
+}> = ({ item, onOpenVideo, onOpenImage }) => {
+  const { resolvedUrl, isLoading, loadingPercent } = useResolvedAttachmentUrl(item);
+
+  return (
+    <div className="bg-[#070c09] border border-[#142218] p-2.5 rounded-xs space-y-2 hover:border-[#10b981]/50 transition-all group">
+      {item.type === 'video' ? (
+        <div
+          onClick={() => {
+            if (resolvedUrl) {
+              onOpenVideo(resolvedUrl, item.name, item.hash, item.duration, item.size);
+            }
+          }}
+          className="relative bg-black aspect-video rounded-xs overflow-hidden cursor-pointer flex items-center justify-center border border-[#121e16]"
+        >
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center space-y-1">
+              <Loader2 className="w-5 h-5 text-[#10b981] animate-spin" />
+              <span className="text-[9px] text-[#10b981] font-mono">{loadingPercent}%</span>
+            </div>
+          ) : (
+            <>
+              <video src={resolvedUrl} className="w-full h-full object-cover opacity-75 group-hover:opacity-100" />
+              <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                <div className="w-9 h-9 rounded-full bg-[#050907]/90 border border-[#10b981] text-[#10b981] flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Play className="w-4 h-4 fill-current ml-0.5" />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      ) : (
+        <div
+          onClick={() => {
+            if (resolvedUrl) {
+              onOpenImage(resolvedUrl, item.name, item.hash);
+            }
+          }}
+          className="relative bg-black aspect-video rounded-xs overflow-hidden cursor-pointer flex items-center justify-center border border-[#121e16]"
+        >
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center space-y-1">
+              <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+              <span className="text-[9px] text-blue-400 font-mono">{loadingPercent}%</span>
+            </div>
+          ) : (
+            <img src={resolvedUrl} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+          )}
+        </div>
+      )}
+
+      <div className="space-y-1">
+        <div className="font-bold text-[#e2e8f0] truncate text-[11px]">{item.name}</div>
+        <div className="flex justify-between items-center text-[10px] text-[#64748b]">
+          <span>{formatBytes(item.size)}</span>
+          <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+        </div>
+        <div className="flex justify-between items-center text-[10px] text-[#475569] pt-1 border-t border-[#101b14]">
+          <span>SHA256: {truncateHash(item.hash, 8)}</span>
+          {resolvedUrl ? (
+            <a
+              href={resolvedUrl}
+              download={item.name}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[#10b981] hover:text-[#34d399] transition-colors p-0.5"
+              title="Download"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </a>
+          ) : (
+            <span className="text-[9px] text-gray-600">LOADING...</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const DirectoryFileRow: React.FC<{
+  item: FileAttachment & { createdAt: number; type: string };
+}> = ({ item }) => {
+  const { resolvedUrl } = useResolvedAttachmentUrl(item);
+
+  return (
+    <tr className="hover:bg-[#0a120d] transition-colors text-[11px]">
+      <td className="p-2.5 font-bold text-[#e2e8f0] truncate max-w-xs">{item.name}</td>
+      <td className="p-2.5 text-[#94a3b8]">{formatBytes(item.size)}</td>
+      <td className="p-2.5 text-[#64748b] uppercase">{item.type.split('/')[1] || 'FILE'}</td>
+      <td className="p-2.5 text-[#64748b]">{new Date(item.createdAt).toLocaleDateString()}</td>
+      <td className="p-2.5 text-[#475569] font-mono">{truncateHash(item.hash, 12)}</td>
+      <td className="p-2.5 text-right">
+        {resolvedUrl ? (
+          <a
+            href={resolvedUrl}
+            download={item.name}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center space-x-1 px-2 py-1 bg-[#0d1c12] border border-[#162a1e] text-[#10b981] hover:bg-[#10b981] hover:text-black rounded-xs text-[10px] font-bold transition-all"
+          >
+            <Download className="w-3 h-3" />
+            <span>DOWNLOAD</span>
+          </a>
+        ) : (
+          <span className="text-[#64748b] text-[10px]">PREPARING...</span>
+        )}
+      </td>
+    </tr>
+  );
+};
 
 interface DirectoryViewProps {
   mode: 'MEDIA' | 'FILES';
@@ -104,52 +227,12 @@ export const DirectoryView: React.FC<DirectoryViewProps> = ({
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {mediaItems.map((item, idx) => (
-              <div
+              <DirectoryMediaCard
                 key={idx}
-                className="bg-[#070c09] border border-[#142218] p-2.5 rounded-xs space-y-2 hover:border-[#10b981]/50 transition-all group"
-              >
-                {item.type === 'video' ? (
-                  <div
-                    onClick={() => onOpenVideo(item.url, item.name, item.hash, item.duration, item.size)}
-                    className="relative bg-black aspect-video rounded-xs overflow-hidden cursor-pointer flex items-center justify-center border border-[#121e16]"
-                  >
-                    <video src={item.url} className="w-full h-full object-cover opacity-75 group-hover:opacity-100" />
-                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                      <div className="w-9 h-9 rounded-full bg-[#050907]/90 border border-[#10b981] text-[#10b981] flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <Play className="w-4 h-4 fill-current ml-0.5" />
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div
-                    onClick={() => onOpenImage(item.url, item.name, item.hash)}
-                    className="relative bg-black aspect-video rounded-xs overflow-hidden cursor-pointer flex items-center justify-center border border-[#121e16]"
-                  >
-                    <img src={item.url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                  </div>
-                )}
-
-                <div className="space-y-1">
-                  <div className="font-bold text-[#e2e8f0] truncate text-[11px]">{item.name}</div>
-                  <div className="flex justify-between items-center text-[10px] text-[#64748b]">
-                    <span>{formatBytes(item.size)}</span>
-                    <span>{new Date(item.createdAt).toLocaleDateString()}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-[10px] text-[#475569] pt-1 border-t border-[#101b14]">
-                    <span>SHA256: {truncateHash(item.hash, 8)}</span>
-                    <a
-                      href={item.url}
-                      download={item.name}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[#10b981] hover:text-[#34d399] transition-colors p-0.5"
-                      title="Download"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                    </a>
-                  </div>
-                </div>
-              </div>
+                item={item}
+                onOpenVideo={onOpenVideo}
+                onOpenImage={onOpenImage}
+              />
             ))}
           </div>
         )}
@@ -203,25 +286,7 @@ export const DirectoryView: React.FC<DirectoryViewProps> = ({
             </thead>
             <tbody className="divide-y divide-[#101b14] bg-[#050907]">
               {fileItems.map((item, idx) => (
-                <tr key={idx} className="hover:bg-[#0a120d] transition-colors text-[11px]">
-                  <td className="p-2.5 font-bold text-[#e2e8f0] truncate max-w-xs">{item.name}</td>
-                  <td className="p-2.5 text-[#94a3b8]">{formatBytes(item.size)}</td>
-                  <td className="p-2.5 text-[#64748b] uppercase">{item.type.split('/')[1] || 'FILE'}</td>
-                  <td className="p-2.5 text-[#64748b]">{new Date(item.createdAt).toLocaleDateString()}</td>
-                  <td className="p-2.5 text-[#475569] font-mono">{truncateHash(item.hash, 12)}</td>
-                  <td className="p-2.5 text-right">
-                    <a
-                      href={item.url}
-                      download={item.name}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center space-x-1 px-2 py-1 bg-[#0d1c12] border border-[#162a1e] text-[#10b981] hover:bg-[#10b981] hover:text-black rounded-xs text-[10px] font-bold transition-all"
-                    >
-                      <Download className="w-3 h-3" />
-                      <span>DOWNLOAD</span>
-                    </a>
-                  </td>
-                </tr>
+                <DirectoryFileRow key={idx} item={item} />
               ))}
             </tbody>
           </table>
