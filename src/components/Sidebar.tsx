@@ -124,7 +124,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 />
               </div>
               <div>
-                <label className="text-[9px] text-[#64748b]">PASSWORD (IF PROTECTED)</label>
+                <label className="text-[9px] text-[#64748b]">PASSWORD</label>
                 <input
                   type="password"
                   value={customPasswordInput}

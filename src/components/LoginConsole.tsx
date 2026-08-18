@@ -91,7 +91,7 @@ export const LoginConsole: React.FC<LoginConsoleProps> = ({
       </div>
 
       <div className="mt-6 text-[11px] text-gray-700 tracking-widest uppercase">
-        NEXUS SERVER // PRIVATE COMMUNICATION SYSTEM
+        NEXUS SERVER 
       </div>
     </div>
   );
