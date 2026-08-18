@@ -1,0 +1,11 @@
+{
+  "name": "NEXUS",
+  "description": "Private minimal server console and secure communication system.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

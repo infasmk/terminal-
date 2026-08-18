@@ -1,0 +1,52 @@
+{
+  "entities": {
+    "users": {
+      "title": "Users",
+      "description": "Authorized operators of NEXUS server",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "isOnline": { "type": "boolean" },
+        "lastSeen": { "type": "string" },
+        "isTyping": { "type": "boolean" },
+        "role": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "messages": {
+      "title": "Messages",
+      "description": "Channel communication logs",
+      "type": "object",
+      "properties": {
+        "channelId": { "type": "string" },
+        "senderUid": { "type": "string" },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "type": { "type": "string" },
+        "mediaUrl": { "type": "string" },
+        "fileName": { "type": "string" },
+        "fileSize": { "type": "number" },
+        "fileHash": { "type": "string" },
+        "duration": { "type": "string" },
+        "readBy": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string" },
+        "expiresAt": { "type": "string" }
+      },
+      "required": ["channelId", "senderUid", "type", "createdAt"]
+    },
+    "system_logs": {
+      "title": "System Logs",
+      "description": "Server operation logs",
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string" },
+        "event": { "type": "string" },
+        "level": { "type": "string" },
+        "userUid": { "type": "string" }
+      },
+      "required": ["timestamp", "event"]
+    }
+  }
+}
