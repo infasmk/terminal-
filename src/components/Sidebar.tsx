@@ -6,7 +6,7 @@ interface SidebarProps {
   currentView: ViewDirectory;
   onSelectView: (view: ViewDirectory) => void;
   currentRoomId: string;
-  onSelectRoom: (roomId: string) => void;
+  onSelectRoom: (roomId: string, password?: string) => void;
   onlineCount: number;
   totalUsersCount: number;
   uptimeString: string;
@@ -37,6 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isFriendOnline = friendUser?.isOnline ?? false;
   const [isCustomRoomOpen, setIsCustomRoomOpen] = React.useState(false);
   const [customRoomInput, setCustomRoomInput] = React.useState('');
+  const [customPasswordInput, setCustomPasswordInput] = React.useState('');
 
   const defaultRooms = ['ROOM_ALPHA', 'SECURE_ROOM_01', 'OPS_CENTER', 'DEV_HQ'];
 
@@ -44,8 +45,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     e.preventDefault();
     if (customRoomInput.trim()) {
       const sanitized = customRoomInput.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
-      onSelectRoom(sanitized);
+      onSelectRoom(sanitized, customPasswordInput.trim());
       setCustomRoomInput('');
+      setCustomPasswordInput('');
       setIsCustomRoomOpen(false);
     }
   };
@@ -105,16 +107,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {/* Custom Room Input Form */}
             {isCustomRoomOpen && (
-              <form onSubmit={handleJoinCustomRoom} className="space-y-1.5 p-2 bg-[#050907] border border-[#162a1e] rounded-xs">
-                <div className="text-[10px] text-[#10b981] font-bold">JOIN / CREATE ROOM ID</div>
-                <input
-                  type="text"
-                  value={customRoomInput}
-                  onChange={(e) => setCustomRoomInput(e.target.value)}
-                  placeholder="e.g. ROOM_999 or TEAM_X"
-                  className="w-full bg-black border border-[#1e1e1e] px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#10b981] font-mono"
-                  autoFocus
-                />
+              <form onSubmit={handleJoinCustomRoom} className="space-y-2 p-2.5 bg-[#050907] border border-[#162a1e] rounded-xs">
+                <div className="text-[10px] text-[#10b981] font-bold">JOIN / CREATE PRIVATE ROOM</div>
+                <div>
+                  <label className="text-[9px] text-[#64748b]">ROOM ID</label>
+                  <input
+                    type="text"
+                    value={customRoomInput}
+                    onChange={(e) => setCustomRoomInput(e.target.value)}
+                    placeholder="e.g. ROOM_999 or TEAM_X"
+                    className="w-full bg-black border border-[#1e1e1e] px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#10b981] font-mono rounded-xs"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] text-[#64748b]">ROOM PASSWORD (OPTIONAL)</label>
+                  <input
+                    type="password"
+                    value={customPasswordInput}
+                    onChange={(e) => setCustomPasswordInput(e.target.value)}
+                    placeholder="Set password or leave empty"
+                    className="w-full bg-black border border-[#1e1e1e] px-2 py-1 text-[11px] text-white focus:outline-none focus:border-[#10b981] font-mono rounded-xs"
+                  />
+                </div>
                 <div className="flex justify-end space-x-1 pt-1">
                   <button
                     type="button"
@@ -125,9 +140,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </button>
                   <button
                     type="submit"
-                    className="px-2.5 py-0.5 text-[9px] bg-[#10b981] text-black font-bold hover:bg-[#34d399]"
+                    className="px-2.5 py-0.5 text-[9px] bg-[#10b981] text-black font-bold hover:bg-[#34d399] rounded-xs"
                   >
-                    ENTER
+                    ENTER ROOM
                   </button>
                 </div>
               </form>
@@ -210,21 +225,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               >
                 <FileText className="w-3.5 h-3.5" />
                 <span>[F] FILES</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  onSelectView('LOGS');
-                  onCloseMobile();
-                }}
-                className={`w-full text-left px-2 py-1 rounded-xs flex items-center space-x-2 transition-colors ${
-                  currentView === 'LOGS'
-                    ? 'text-green-500 font-bold bg-[#1e1e1e]/50'
-                    : 'text-gray-400 hover:bg-[#1e1e1e]'
-                }`}
-              >
-                <Terminal className="w-3.5 h-3.5" />
-                <span>[L] LOGS</span>
               </button>
             </div>
           </section>

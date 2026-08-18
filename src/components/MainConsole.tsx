@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Message, MessageType, UploadProgress, UserProfile, SystemLog } from '../types';
+import { Message, MessageType, UploadProgress, UserProfile } from '../types';
 import { MessageItem } from './MessageItem';
 import { MessageComposer } from './MessageComposer';
-import { Lock, Search, Terminal, ChevronDown, ChevronUp } from 'lucide-react';
+import { Lock, Search, Share2, ShieldCheck, Terminal } from 'lucide-react';
 
 interface MainConsoleProps {
   messages: Message[];
   currentUid: string;
+  currentRoomId: string;
+  isRoomProtected?: boolean;
+  onOpenShareRoom: () => void;
   onSendMessage: (text: string, type?: MessageType) => Promise<void>;
   onFileUpload: (file: File) => void;
   activeUpload: UploadProgress | null;
@@ -16,7 +19,6 @@ interface MainConsoleProps {
   onOpenVideo: (url: string, name: string, hash: string, duration?: string, size?: number) => void;
   onOpenImage: (url: string, name: string, hash: string) => void;
   onDeleteMessage: (id: string) => void;
-  systemLogs: SystemLog[];
   expirationHours: number;
   soundAlerts: boolean;
 }
@@ -24,6 +26,9 @@ interface MainConsoleProps {
 export const MainConsole: React.FC<MainConsoleProps> = ({
   messages,
   currentUid,
+  currentRoomId,
+  isRoomProtected = false,
+  onOpenShareRoom,
   onSendMessage,
   onFileUpload,
   activeUpload,
@@ -33,12 +38,10 @@ export const MainConsole: React.FC<MainConsoleProps> = ({
   onOpenVideo,
   onOpenImage,
   onDeleteMessage,
-  systemLogs,
   expirationHours,
   soundAlerts,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [showSystemLog, setShowSystemLog] = useState(true);
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
   // Find friend user
@@ -66,62 +69,51 @@ export const MainConsole: React.FC<MainConsoleProps> = ({
       {/* Channel Header Bar */}
       <div className="bg-[#0a0c0b] border-b border-[#1e1e1e] px-4 py-2 flex items-center justify-between z-10 shrink-0 text-xs">
         <div className="flex items-center space-x-2">
-          <span className="text-gray-500 uppercase text-xs">Channel:</span>
-          <span className="text-white font-bold text-xs">PRIVATE_CHANNEL_01</span>
+          <span className="text-gray-500 uppercase text-xs">ROOM:</span>
+          <span className="text-white font-bold text-xs tracking-wider">{currentRoomId}</span>
+          {isRoomProtected ? (
+            <span className="flex items-center space-x-1 text-[10px] bg-[#1a1205] border border-[#3b270a] text-[#f59e0b] px-1.5 py-0.5 rounded-xs font-bold">
+              <Lock className="w-3 h-3" />
+              <span>PRIVATE</span>
+            </span>
+          ) : (
+            <span className="flex items-center space-x-1 text-[10px] bg-[#07130c] border border-[#162a1e] text-[#10b981] px-1.5 py-0.5 rounded-xs font-bold">
+              <ShieldCheck className="w-3 h-3" />
+              <span>OPEN</span>
+            </span>
+          )}
         </div>
 
-        {/* Search Bar & Node Status */}
-        <div className="flex items-center space-x-3">
-          <div className="text-[10px] text-gray-500 hidden sm:inline">NODE: SYNC_228</div>
+        {/* Share Button & Search Bar */}
+        <div className="flex items-center space-x-2 sm:space-x-3">
+          <button
+            onClick={onOpenShareRoom}
+            className="flex items-center space-x-1.5 bg-[#0d1f14] border border-[#162a1e] text-[#10b981] hover:bg-[#10b981] hover:text-black px-2.5 py-1 rounded-xs font-bold text-[10px] transition-colors"
+            title="Share Room Details & Password"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">SHARE ROOM</span>
+          </button>
+
           <div className="relative">
             <Search className="w-3 h-3 absolute left-2 top-2 text-gray-500" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="SEARCH CHANNEL..."
-              className="bg-black border border-[#1e1e1e] focus:border-green-500 text-white placeholder-gray-600 pl-6 pr-2 py-1 rounded-xs text-[11px] outline-none w-32 sm:w-44"
+              placeholder="SEARCH..."
+              className="bg-black border border-[#1e1e1e] focus:border-green-500 text-white placeholder-gray-600 pl-6 pr-2 py-1 rounded-xs text-[11px] outline-none w-28 sm:w-44"
             />
           </div>
-
-          <button
-            onClick={() => setShowSystemLog(!showSystemLog)}
-            className="p-1 text-gray-500 hover:text-white border border-[#1e1e1e] rounded-xs"
-            title="Toggle System Log Snippet"
-          >
-            {showSystemLog ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-          </button>
         </div>
       </div>
-
-      {/* System Log Snippet Box */}
-      {showSystemLog && (
-        <div className="bg-[#0a0c0b] border border-[#1e1e1e] p-2 mx-4 mt-3 mb-1 font-mono text-[9px] text-gray-500 overflow-hidden leading-relaxed shrink-0">
-          <div className="flex items-center justify-between text-green-500 font-bold border-b border-[#1e1e1e] pb-1 mb-1">
-            <span className="flex items-center space-x-1">
-              <Terminal className="w-3 h-3" />
-              <span>SYSTEM LOG</span>
-            </span>
-            <span className="text-[9px] text-gray-600">HANDSHAKE SUCCESSFUL // LATENCY: 24MS</span>
-          </div>
-
-          <div className="space-y-0.5 max-h-16 overflow-y-auto font-mono text-gray-400">
-            {systemLogs.slice(-3).map((log, i) => (
-              <div key={i} className="flex space-x-2">
-                <span className="text-gray-600">[{log.timestamp}]</span>
-                <span className="text-gray-300">{log.event}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Messages Scroll Area */}
       <div className="flex-1 p-3 overflow-y-auto space-y-2">
         {filteredMessages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-[#475569] text-xs space-y-2">
             <Terminal className="w-6 h-6 text-[#10b981]/50" />
-            <div>NO MESSAGES IN PRIVATE_CHANNEL_01</div>
+            <div>NO MESSAGES IN ROOM #{currentRoomId}</div>
             <div className="text-[10px] text-[#334155]">INITIATE TRANSMISSION BELOW</div>
           </div>
         ) : (

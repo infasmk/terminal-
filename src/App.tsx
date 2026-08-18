@@ -38,13 +38,15 @@ import { TopBar } from './components/TopBar';
 import { Sidebar } from './components/Sidebar';
 import { MainConsole } from './components/MainConsole';
 import { DirectoryView } from './components/DirectoryView';
-import { LogsView } from './components/LogsView';
 import { SettingsModal } from './components/SettingsModal';
 import { LoginConsole } from './components/LoginConsole';
 import { AccessDeniedModal } from './components/AccessDeniedModal';
 import { VideoPlayerModal } from './components/VideoPlayerModal';
 import { ImageViewerModal } from './components/ImageViewerModal';
+import { ShareRoomModal } from './components/ShareRoomModal';
+import { RoomLockModal } from './components/RoomLockModal';
 import { Footer } from './components/Footer';
+import { getRoomMeta, createOrUpdateRoom, RoomMeta } from './services/roomService';
 
 interface OperatorSession {
   uid: string;
@@ -78,15 +80,110 @@ export default function App() {
 
   // Application State
   const [currentView, setCurrentView] = useState<ViewDirectory>('MESSAGES');
-  const [currentRoomId, setCurrentRoomId] = useState<string>(
-    () => localStorage.getItem('nexus_room_id') || 'ROOM_ALPHA'
-  );
+  const [currentRoomId, setCurrentRoomId] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
+    if (roomParam) return roomParam.toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
+    return localStorage.getItem('nexus_room_id') || 'ROOM_ALPHA';
+  });
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
   const [systemLogs, setSystemLogs] = useState<SystemLog[]>([]);
   const [activeUpload, setActiveUpload] = useState<UploadProgress | null>(null);
   const [cancelUploadFn, setCancelUploadFn] = useState<(() => void) | null>(null);
+
+  // Room Password & Security State
+  const [roomMetaMap, setRoomMetaMap] = useState<Record<string, RoomMeta>>({});
+  const [unlockedRooms, setUnlockedRooms] = useState<Record<string, boolean>>({});
+  const [pendingLockedRoomId, setPendingLockedRoomId] = useState<string | null>(null);
+  const [isShareRoomOpen, setIsShareRoomOpen] = useState(false);
+
+  // Check URL params on initial mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
+    const passParam = params.get('pass');
+    if (roomParam) {
+      const formatted = roomParam.toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
+      if (passParam) {
+        setUnlockedRooms((prev) => ({ ...prev, [formatted]: true }));
+        createOrUpdateRoom(formatted, passParam, 'GUEST_LINK');
+      }
+    }
+  }, []);
+
+  // Fetch current room metadata
+  useEffect(() => {
+    let isMounted = true;
+    getRoomMeta(currentRoomId).then((meta) => {
+      if (!isMounted) return;
+      if (meta) {
+        setRoomMetaMap((prev) => ({ ...prev, [currentRoomId]: meta }));
+        // If room has password and not unlocked, lock room
+        if (meta.password && !unlockedRooms[currentRoomId]) {
+          setPendingLockedRoomId(currentRoomId);
+        }
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [currentRoomId]);
+
+  const handleSelectRoom = async (roomId: string, passwordProvided?: string) => {
+    const targetRoom = roomId.toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
+
+    let meta = roomMetaMap[targetRoom];
+    if (!meta) {
+      meta = (await getRoomMeta(targetRoom)) || {
+        roomId: targetRoom,
+        createdAt: Date.now(),
+        createdBy: currentUser?.uid || 'OPERATOR',
+      };
+      setRoomMetaMap((prev) => ({ ...prev, [targetRoom]: meta }));
+    }
+
+    if (passwordProvided) {
+      await createOrUpdateRoom(targetRoom, passwordProvided, currentUser?.uid || 'OPERATOR');
+      meta.password = passwordProvided;
+      setRoomMetaMap((prev) => ({ ...prev, [targetRoom]: { ...meta, password: passwordProvided } }));
+      setUnlockedRooms((prev) => ({ ...prev, [targetRoom]: true }));
+      setCurrentRoomId(targetRoom);
+      localStorage.setItem('nexus_room_id', targetRoom);
+      return;
+    }
+
+    if (meta.password && !unlockedRooms[targetRoom]) {
+      setPendingLockedRoomId(targetRoom);
+      return;
+    }
+
+    setCurrentRoomId(targetRoom);
+    localStorage.setItem('nexus_room_id', targetRoom);
+  };
+
+  const handleUnlockRoom = async (enteredPassword: string): Promise<boolean> => {
+    if (!pendingLockedRoomId) return false;
+    let meta = roomMetaMap[pendingLockedRoomId];
+    if (!meta) {
+      meta = (await getRoomMeta(pendingLockedRoomId)) || {
+        roomId: pendingLockedRoomId,
+        createdAt: Date.now(),
+        createdBy: currentUser?.uid || 'OPERATOR',
+      };
+    }
+
+    if (!meta.password || meta.password === enteredPassword.trim()) {
+      setUnlockedRooms((prev) => ({ ...prev, [pendingLockedRoomId]: true }));
+      setCurrentRoomId(pendingLockedRoomId);
+      localStorage.setItem('nexus_room_id', pendingLockedRoomId);
+      setPendingLockedRoomId(null);
+      return true;
+    }
+
+    return false;
+  };
 
   // Modal states
   const [activeVideo, setActiveVideo] = useState<{
@@ -339,10 +436,7 @@ export default function App() {
           currentView={currentView}
           onSelectView={setCurrentView}
           currentRoomId={currentRoomId}
-          onSelectRoom={(rId) => {
-            setCurrentRoomId(rId);
-            localStorage.setItem('nexus_room_id', rId);
-          }}
+          onSelectRoom={handleSelectRoom}
           onlineCount={usersList.filter((u) => u.isOnline).length || 1}
           totalUsersCount={usersList.length || 2}
           uptimeString={formatUptime(uptimeSeconds)}
@@ -360,6 +454,9 @@ export default function App() {
             <MainConsole
               messages={messages}
               currentUid={currentUser.uid}
+              currentRoomId={currentRoomId}
+              isRoomProtected={Boolean(roomMetaMap[currentRoomId]?.password)}
+              onOpenShareRoom={() => setIsShareRoomOpen(true)}
               onSendMessage={handleSendMessage}
               onFileUpload={handleFileUpload}
               activeUpload={activeUpload}
@@ -371,7 +468,6 @@ export default function App() {
               }
               onOpenImage={(url, name, hash) => setActiveImage({ url, name, hash })}
               onDeleteMessage={handleDeleteMessage}
-              systemLogs={systemLogs}
               expirationHours={settings.messageExpirationHours}
               soundAlerts={settings.soundAlerts}
             />
@@ -387,13 +483,45 @@ export default function App() {
               onOpenImage={(url, name, hash) => setActiveImage({ url, name, hash })}
             />
           )}
-
-          {currentView === 'LOGS' && <LogsView logs={systemLogs} />}
         </main>
       </div>
 
       {/* Footer Status Bar */}
       <Footer />
+
+      {/* Room Unlock Password Modal */}
+      {pendingLockedRoomId && (
+        <RoomLockModal
+          roomId={pendingLockedRoomId}
+          onUnlock={handleUnlockRoom}
+          onCancel={() => setPendingLockedRoomId(null)}
+        />
+      )}
+
+      {/* Share Room & Password Modal */}
+      {isShareRoomOpen && (
+        <ShareRoomModal
+          roomId={currentRoomId}
+          currentPassword={roomMetaMap[currentRoomId]?.password || ''}
+          userUid={currentUser.uid}
+          onClose={() => setIsShareRoomOpen(false)}
+          onPasswordUpdated={(newPass) => {
+            setRoomMetaMap((prev) => ({
+              ...prev,
+              [currentRoomId]: {
+                ...prev[currentRoomId],
+                roomId: currentRoomId,
+                password: newPass,
+                createdAt: prev[currentRoomId]?.createdAt || Date.now(),
+                createdBy: prev[currentRoomId]?.createdBy || currentUser.uid,
+              },
+            }));
+            if (newPass) {
+              setUnlockedRooms((prev) => ({ ...prev, [currentRoomId]: true }));
+            }
+          }}
+        />
+      )}
 
       {/* Video Player Modal */}
       {activeVideo && (
