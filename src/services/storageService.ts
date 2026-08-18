@@ -66,81 +66,91 @@ export function uploadFileWithProgress(
         status: 'UPLOADING',
       });
 
-      // Try Firebase Storage first
+      // Try Firebase Storage first, fallback gracefully to DataURL
       const timeStamp = Date.now();
       const storagePath = `nexus_uploads/${userUid}/${timeStamp}_${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-      const storageRef = ref(storage, storagePath);
 
-      const uploadTask = uploadBytesResumable(storageRef, file);
-      cancelFirebaseTask = () => uploadTask.cancel();
+      try {
+        const storageRef = ref(storage, storagePath);
+        const uploadTask = uploadBytesResumable(storageRef, file);
+        cancelFirebaseTask = () => uploadTask.cancel();
 
-      uploadTask.on(
-        'state_changed',
-        (snapshot) => {
-          if (isCancelled) return;
-          const percent = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-          onProgress({
-            fileName: file.name,
-            fileSize: file.size,
-            progressPercent: Math.max(5, percent),
-            bytesTransferred: snapshot.bytesTransferred,
-            status: 'UPLOADING',
-          });
-        },
-        async (error) => {
-          if (isCancelled || error.code === 'storage/canceled') {
-            await addSystemLog(`MEDIA UPLOAD CANCELLED: ${file.name}`, 'WARN', userUid);
+        uploadTask.on(
+          'state_changed',
+          (snapshot) => {
+            if (isCancelled) return;
+            const percent = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
             onProgress({
               fileName: file.name,
               fileSize: file.size,
-              progressPercent: 0,
-              bytesTransferred: 0,
-              status: 'CANCELLED',
+              progressPercent: Math.max(5, percent),
+              bytesTransferred: snapshot.bytesTransferred,
+              status: 'UPLOADING',
             });
-            reject(new Error('UPLOAD_CANCELLED'));
-            return;
-          }
+          },
+          async (error) => {
+            if (isCancelled || error.code === 'storage/canceled') {
+              await addSystemLog(`MEDIA UPLOAD CANCELLED: ${file.name}`, 'WARN', userUid);
+              onProgress({
+                fileName: file.name,
+                fileSize: file.size,
+                progressPercent: 0,
+                bytesTransferred: 0,
+                status: 'CANCELLED',
+              });
+              reject(new Error('UPLOAD_CANCELLED'));
+              return;
+            }
 
-          console.warn('Firebase Storage upload error, falling back to local object storage:', error);
+            console.warn('Firebase Storage upload error, falling back to local data storage:', error);
 
-          // Local Blob / DataURL fallback for preview/sandbox resilience
-          simulateLocalUpload(file, hash, duration, storagePath, onProgress, () => isCancelled)
-            .then((attachment) => {
-              addSystemLog(`MEDIA UPLOAD COMPLETE (LOCAL STORAGE): ${file.name}`, 'INFO', userUid);
+            simulateLocalUpload(file, hash, duration, storagePath, onProgress, () => isCancelled)
+              .then((attachment) => {
+                addSystemLog(`MEDIA UPLOAD COMPLETE (DATA STORAGE): ${file.name}`, 'INFO', userUid);
+                resolve(attachment);
+              })
+              .catch((err) => {
+                addSystemLog(`MEDIA UPLOAD FAILED: ${file.name}`, 'ERR', userUid);
+                reject(err);
+              });
+          },
+          async () => {
+            if (isCancelled) {
+              reject(new Error('UPLOAD_CANCELLED'));
+              return;
+            }
+            try {
+              const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+              await addSystemLog(`MEDIA UPLOAD COMPLETE: ${file.name}`, 'INFO', userUid);
+
+              onProgress({
+                fileName: file.name,
+                fileSize: file.size,
+                progressPercent: 100,
+                bytesTransferred: file.size,
+                status: 'COMPLETE',
+              });
+
+              resolve({
+                url: downloadUrl,
+                name: file.name,
+                size: file.size,
+                type: file.type || getFileTypeCategory(file.name),
+                hash,
+                duration: duration || undefined,
+                storagePath,
+              });
+            } catch {
+              const attachment = await simulateLocalUpload(file, hash, duration, storagePath, onProgress, () => isCancelled);
               resolve(attachment);
-            })
-            .catch((err) => {
-              addSystemLog(`MEDIA UPLOAD FAILED: ${file.name}`, 'ERR', userUid);
-              reject(err);
-            });
-        },
-        async () => {
-          if (isCancelled) {
-            reject(new Error('UPLOAD_CANCELLED'));
-            return;
+            }
           }
-          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-          await addSystemLog(`MEDIA UPLOAD COMPLETE: ${file.name}`, 'INFO', userUid);
-
-          onProgress({
-            fileName: file.name,
-            fileSize: file.size,
-            progressPercent: 100,
-            bytesTransferred: file.size,
-            status: 'COMPLETE',
-          });
-
-          resolve({
-            url: downloadUrl,
-            name: file.name,
-            size: file.size,
-            type: file.type || getFileTypeCategory(file.name),
-            hash,
-            duration: duration || undefined,
-            storagePath,
-          });
-        }
-      );
+        );
+      } catch (storageError) {
+        console.warn('Firebase Storage initialization error, using direct Data URL upload:', storageError);
+        const attachment = await simulateLocalUpload(file, hash, duration, storagePath, onProgress, () => isCancelled);
+        resolve(attachment);
+      }
     } catch (err) {
       if (isCancelled) {
         reject(new Error('UPLOAD_CANCELLED'));
@@ -167,8 +177,8 @@ async function simulateLocalUpload(
   checkCancelled: () => boolean
 ): Promise<FileAttachment> {
   const total = file.size;
-  const steps = 10;
-  const delay = Math.min(300, Math.max(50, total / 100000));
+  const steps = 5;
+  const delay = Math.min(100, Math.max(30, total / 200000));
 
   for (let i = 1; i <= steps; i++) {
     if (checkCancelled()) throw new Error('UPLOAD_CANCELLED');
@@ -183,8 +193,8 @@ async function simulateLocalUpload(
     });
   }
 
-  // Create ObjectURL for local preview
-  const objectUrl = URL.createObjectURL(file);
+  // Convert file to reliable Base64 Data URL (sharable across all browsers and persistent)
+  const fileDataUrl = await fileToDataUrl(file);
 
   onProgress({
     fileName: file.name,
@@ -195,7 +205,7 @@ async function simulateLocalUpload(
   });
 
   return {
-    url: objectUrl,
+    url: fileDataUrl,
     name: file.name,
     size: file.size,
     type: file.type || getFileTypeCategory(file.name),
@@ -203,6 +213,67 @@ async function simulateLocalUpload(
     duration: duration || undefined,
     storagePath: `local://${storagePath}`,
   };
+}
+
+export async function fileToDataUrl(file: File): Promise<string> {
+  if (file.type.startsWith('image/')) {
+    return compressImageToDataUrl(file);
+  }
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => resolve(URL.createObjectURL(file));
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function compressImageToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const canvas = document.createElement('canvas');
+      const MAX_WIDTH = 1280;
+      const MAX_HEIGHT = 1280;
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+      } else {
+        if (height > MAX_HEIGHT) {
+          width = Math.round((width * MAX_HEIGHT) / height);
+          height = MAX_HEIGHT;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        resolve(dataUrl);
+      } else {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => resolve(URL.createObjectURL(file));
+        reader.readAsDataURL(file);
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => resolve(URL.createObjectURL(file));
+      reader.readAsDataURL(file);
+    };
+    img.src = url;
+  });
 }
 
 export function getFileTypeCategory(fileName: string): string {
